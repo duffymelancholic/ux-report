@@ -96,7 +96,7 @@ export function summarizeResults(axeResults, ux) {
 }
 
 /** Build a printable HTML report (used as the PDF source). */
-export function buildHtmlReport({ url, axeResults, ux, summary, generatedAt }) {
+export function buildHtmlReport({ url, axeResults, ux, summary, generatedAt, screenshotDataUri = null }) {
   const esc = (s) =>
     String(s ?? '')
       .replaceAll('&', '&amp;')
@@ -125,6 +125,7 @@ h1{font-size:22px}h2{font-size:17px;margin-top:28px}
 <h1>UI/UX + accessibility audit</h1>
 <p class="meta">URL: ${esc(url)}<br>Generated: ${esc(generatedAt)}</p>
 <p class="score">${summary.score}/100</p>
+${screenshotDataUri ? `<h2>Screenshot</h2>\n<img src="${screenshotDataUri}" alt="Screenshot of ${esc(url)}" style="max-width:100%;border:1px solid #ccc">` : ''}
 <h2>Summary</h2>
 <table><tr><th>Critical nodes</th><th>Serious nodes</th><th>Moderate nodes</th><th>Minor nodes</th><th>Axe rules failing</th></tr>
 <tr><td>${summary.counts.critical}</td><td>${summary.counts.serious}</td><td>${summary.counts.moderate}</td><td>${summary.counts.minor}</td><td>${summary.violationCount}</td></tr></table>
@@ -151,7 +152,7 @@ h1{font-size:22px}h2{font-size:17px;margin-top:28px}
  * Writes a PDF (via the printable HTML above) and optionally JSON.
  */
 export async function runAudit(url, options = {}) {
-  const { outputPdf = 'report.pdf', outputJson = null, axeRules = DEFAULT_AXE_RULES, timeoutMs = 30000 } = options;
+  const { outputPdf = 'report.pdf', outputJson = null, axeRules = DEFAULT_AXE_RULES, timeoutMs = 30000, screenshot = true } = options;
   const axePath = require.resolve('axe-core/axe.min.js');
   const axeSource = await readFile(axePath, 'utf8');
 
@@ -175,6 +176,9 @@ export async function runAudit(url, options = {}) {
     const summary = summarizeResults(axeResults, ux);
     const generatedAt = new Date().toISOString();
     const data = { url, generatedAt, axeResults, ux, summary };
+    const screenshotDataUri = screenshot
+      ? `data:image/png;base64,${(await page.screenshot({ fullPage: true })).toString('base64')}`
+      : null;
 
     if (outputJson) {
       const { writeFile } = await import('node:fs/promises');
@@ -183,7 +187,7 @@ export async function runAudit(url, options = {}) {
 
     // Render printable HTML in a fresh page, then print to PDF.
     const printPage = await browser.newPage();
-    await printPage.setContent(buildHtmlReport(data), { waitUntil: 'load' });
+    await printPage.setContent(buildHtmlReport({ ...data, screenshotDataUri }), { waitUntil: 'load' });
     await printPage.pdf({ path: outputPdf, format: 'A4', printBackground: true });
     await printPage.close();
     return { ...data, outputPdf };
@@ -196,10 +200,10 @@ function printHelp() {
   console.log(`ux-report — accessibility & UI/UX PDF report generator
 
 Usage:
-  node index.js <url> [--pdf report.pdf] [--json report.json]
+  node index.js <url> [--pdf report.pdf] [--json report.json] [--no-screenshot]
   node index.js --config audit.yaml
 
-Config YAML keys: url, outputPdf, outputJson, axeRules, timeoutMs
+Config YAML keys: url, outputPdf, outputJson, axeRules, timeoutMs, screenshot
 `);
 }
 
@@ -218,6 +222,7 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop()
       let opts = {
         outputPdf: get('--pdf') ?? 'report.pdf',
         outputJson: get('--json') ?? null,
+        screenshot: !args.includes('--no-screenshot'),
       };
       if (args.includes('--config')) {
         const cfg = await loadConfig(get('--config'));
@@ -227,6 +232,7 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop()
           outputJson: cfg.outputJson ?? opts.outputJson,
           axeRules: cfg.axeRules ?? DEFAULT_AXE_RULES,
           timeoutMs: cfg.timeoutMs ?? 30000,
+          screenshot: cfg.screenshot ?? opts.screenshot,
         };
       }
       if (!url) throw new Error('No URL provided. Pass a URL or --config audit.yaml');

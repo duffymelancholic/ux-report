@@ -53,6 +53,20 @@ describe('buildHtmlReport', () => {
     });
     assert.ok(html.includes('https://example.com'));
     assert.ok(html.includes('100/100'));
+    assert.ok(!html.includes('<img'), 'no screenshot section without screenshotDataUri');
+  });
+
+  it('embeds the screenshot when screenshotDataUri is provided', () => {
+    const summary = summarizeResults({ violations: [] }, fakeUx);
+    const html = buildHtmlReport({
+      url: 'https://example.com',
+      axeResults: { violations: [] },
+      ux: fakeUx,
+      summary,
+      generatedAt: '2026-01-01T00:00:00.000Z',
+      screenshotDataUri: 'data:image/png;base64,iVBORw0KGgo=',
+    });
+    assert.ok(html.includes('<img src="data:image/png;base64,iVBORw0KGgo="'));
   });
 });
 

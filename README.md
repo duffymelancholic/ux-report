@@ -18,8 +18,12 @@ npx playwright install chromium
 
 ```bash
 node index.js https://example.com --pdf report.pdf --json report.json
+node index.js https://example.com --pdf report.pdf --no-screenshot
 node index.js --config audit.yaml
 ```
+
+The PDF includes a full-page screenshot of the audited site by default;
+pass `--no-screenshot` (or `screenshot: false` in YAML) to skip it.
 
 Example `audit.yaml`:
 
