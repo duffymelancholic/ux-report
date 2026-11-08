@@ -1,5 +1,7 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { stdin as stdinStream, stdout as stdoutStream } from 'node:process';
+import { createInterface } from 'node:readline/promises';
 import { chromium } from 'playwright';
 import * as yaml from 'js-yaml';
 
@@ -147,12 +149,69 @@ ${screenshotDataUri ? `<h2>Screenshot</h2>\n<img src="${screenshotDataUri}" alt=
 </body></html>`;
 }
 
+/** Build a Markdown version of the report (same content as the PDF). */
+export function buildMarkdownReport({ url, axeResults, ux, summary, generatedAt }) {
+  const lines = [
+    '# UI/UX + accessibility audit',
+    '',
+    `URL: ${url}`,
+    `Generated: ${generatedAt}`,
+    '',
+    `Score: ${summary.score}/100`,
+    '',
+    '## Summary',
+    '',
+    '| Critical | Serious | Moderate | Minor | Rules failing |',
+    '| --- | --- | --- | --- | --- |',
+    `| ${summary.counts.critical} | ${summary.counts.serious} | ${summary.counts.moderate} | ${summary.counts.minor} | ${summary.violationCount} |`,
+    '',
+    '## UX checks',
+    '',
+    `- Title: ${ux.title || '(missing)'} (${ux.titleLength} chars)`,
+    `- html lang: ${ux.lang || '(missing)'}`,
+    `- Viewport meta: ${ux.hasViewport ? 'yes' : 'no'}`,
+    `- H1 count: ${ux.h1Count}`,
+    `- Images / missing alt: ${ux.imageCount} / ${ux.imagesMissingAlt.length}`,
+    `- Buttons / unnamed: ${ux.buttonCount} / ${ux.buttonsNoName.length}`,
+    `- Links / unnamed: ${ux.linkCount} / ${ux.linksNoName.length}`,
+    '',
+    `## Findings (${summary.findings.length})`,
+    '',
+    ...(summary.findings.length > 0
+      ? summary.findings.map((f) => `- [${f.level}] ${f.check}`)
+      : ['No findings 🎉']),
+    '',
+    '## Axe violations',
+    '',
+    '| Rule | Impact | Help | Nodes |',
+    '| --- | --- | --- | --- |',
+    ...((axeResults?.violations ?? []).map(
+      (v) => `| ${v.id} | ${v.impact} | ${v.help} | ${v.nodes.length} |`,
+    ) || []),
+    ...((axeResults?.violations?.length ?? 0) === 0 ? ['_None_'] : []),
+    '',
+  ];
+  return lines.join('\n');
+}
+
+/** Render report data to a PDF file (launches its own browser). */
+export async function writePdfReport(data, path) {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const printPage = await browser.newPage();
+    await printPage.setContent(buildHtmlReport(data), { waitUntil: 'load' });
+    await printPage.pdf({ path, format: 'A4', printBackground: true });
+  } finally {
+    await browser.close();
+  }
+}
+
 /**
  * Audit a URL with Playwright + axe-core.
  * Writes a PDF (via the printable HTML above) and optionally JSON.
  */
 export async function runAudit(url, options = {}) {
-  const { outputPdf = 'report.pdf', outputJson = null, axeRules = DEFAULT_AXE_RULES, timeoutMs = 30000, screenshot = true } = options;
+  const { outputPdf = 'report.pdf', outputJson = null, outputMd = null, axeRules = DEFAULT_AXE_RULES, timeoutMs = 30000, screenshot = true } = options;
   const axePath = require.resolve('axe-core/axe.min.js');
   const axeSource = await readFile(axePath, 'utf8');
 
@@ -181,30 +240,50 @@ export async function runAudit(url, options = {}) {
       : null;
 
     if (outputJson) {
-      const { writeFile } = await import('node:fs/promises');
       await writeFile(outputJson, JSON.stringify(data, null, 2), 'utf8');
     }
 
+    if (outputMd) {
+      await writeFile(outputMd, buildMarkdownReport(data), 'utf8');
+    }
+
     // Render printable HTML in a fresh page, then print to PDF.
-    const printPage = await browser.newPage();
-    await printPage.setContent(buildHtmlReport({ ...data, screenshotDataUri }), { waitUntil: 'load' });
-    await printPage.pdf({ path: outputPdf, format: 'A4', printBackground: true });
-    await printPage.close();
-    return { ...data, outputPdf };
+    if (outputPdf) {
+      const printPage = await browser.newPage();
+      await printPage.setContent(buildHtmlReport({ ...data, screenshotDataUri }), { waitUntil: 'load' });
+      await printPage.pdf({ path: outputPdf, format: 'A4', printBackground: true });
+      await printPage.close();
+    }
+    return { ...data, screenshotDataUri, outputPdf, outputMd };
   } finally {
     await browser.close();
   }
 }
 
 function printHelp() {
-  console.log(`ux-report — accessibility & UI/UX PDF report generator
+  console.log(`ux-report — accessibility & UI/UX report generator (PDF + Markdown)
 
 Usage:
-  node index.js <url> [--pdf report.pdf] [--json report.json] [--no-screenshot]
+  node index.js [<url>] [--pdf report.pdf] [--md report.md] [--json report.json] [--no-screenshot]
   node index.js --config audit.yaml
 
-Config YAML keys: url, outputPdf, outputJson, axeRules, timeoutMs, screenshot
+With no URL and no --config, you are prompted to paste one.
+With no --pdf/--md/--json output flags, you are asked after the audit
+which format to export (pdf, markdown, or both).
+
+Config YAML keys: url, outputPdf, outputMd, outputJson, axeRules, timeoutMs, screenshot
 `);
+}
+
+/** Prompt for one line of input (used for the URL and export questions). */
+export async function promptInput(question, def = '') {
+  const rl = createInterface({ input: stdinStream, output: stdoutStream });
+  try {
+    const answer = (await rl.question(`${question}${def ? ` [${def}]` : ''}: `)).trim();
+    return answer || def;
+  } finally {
+    rl.close();
+  }
 }
 
 // CLI entrypoint (no-op when imported by tests).
@@ -214,32 +293,71 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop()
     const i = args.indexOf(flag);
     return i >= 0 ? args[i + 1] : undefined;
   };
+  // Positional args are those that are not flags and not values of flags.
+  const takesValue = new Set(['--pdf', '--md', '--json', '--config']);
+  const positionals = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (takesValue.has(a)) {
+      i++;
+      continue;
+    }
+    if (!a.startsWith('--')) positionals.push(a);
+  }
+  const interactive = stdinStream.isTTY && !args.includes('--no-input');
   try {
     if (args.includes('--help') || args.includes('-h')) {
       printHelp();
     } else {
-      let url = args.find((a) => !a.startsWith('--'));
-      let opts = {
-        outputPdf: get('--pdf') ?? 'report.pdf',
-        outputJson: get('--json') ?? null,
-        screenshot: !args.includes('--no-screenshot'),
-      };
-      if (args.includes('--config')) {
-        const cfg = await loadConfig(get('--config'));
-        url = url ?? cfg.url;
-        opts = {
-          outputPdf: cfg.outputPdf ?? opts.outputPdf,
-          outputJson: cfg.outputJson ?? opts.outputJson,
-          axeRules: cfg.axeRules ?? DEFAULT_AXE_RULES,
-          timeoutMs: cfg.timeoutMs ?? 30000,
-          screenshot: cfg.screenshot ?? opts.screenshot,
-        };
+      let cfg = {};
+      if (args.includes('--config')) cfg = await loadConfig(get('--config'));
+      let url = positionals[0] ?? cfg.url ?? null;
+      if (!url) {
+        if (!interactive) throw new Error('No URL provided. Pass a URL or --config audit.yaml');
+        url = await promptInput('Paste the URL to audit');
       }
-      if (!url) throw new Error('No URL provided. Pass a URL or --config audit.yaml');
+      if (!url) throw new Error('No URL provided.');
+      const screenshot = !args.includes('--no-screenshot') && (cfg.screenshot ?? true);
+      const explicitPdf = get('--pdf') ?? cfg.outputPdf ?? null;
+      const explicitMd = get('--md') ?? cfg.outputMd ?? null;
+      const explicitJson = get('--json') ?? cfg.outputJson ?? null;
+      const opts = {
+        outputPdf: explicitPdf,
+        outputMd: explicitMd,
+        outputJson: explicitJson,
+        axeRules: cfg.axeRules ?? DEFAULT_AXE_RULES,
+        timeoutMs: cfg.timeoutMs ?? 30000,
+        screenshot,
+      };
+      const askedLater = interactive && !explicitPdf && !explicitMd && !explicitJson;
+      if (!askedLater && !explicitPdf && !explicitMd && !explicitJson) {
+        opts.outputPdf = 'report.pdf'; // non-interactive default
+      }
       const result = await runAudit(url, opts);
       console.log(`Score ${result.summary.score}/100 — ${result.summary.findings.length} finding(s)`);
-      console.log(`PDF: ${result.outputPdf}`);
-      if (opts.outputJson) console.log(`JSON: ${opts.outputJson}`);
+      if (result.outputPdf) console.log(`PDF: ${result.outputPdf}`);
+      if (result.outputMd) console.log(`Markdown: ${result.outputMd}`);
+      if (result.outputJson) console.log(`JSON: ${result.outputJson}`);
+      if (askedLater) {
+        const choice = (await promptInput('Export format (pdf / md / both)', 'pdf')).toLowerCase();
+        const wantPdf = ['pdf', 'both'].includes(choice);
+        const wantMd = ['md', 'markdown', 'both'].includes(choice);
+        if (!wantPdf && !wantMd) {
+          console.log('No export selected — nothing written.');
+        } else {
+          const base = await promptInput('File name (without extension)', 'report');
+          if (wantPdf) {
+            const pdfPath = base.endsWith('.pdf') ? base : `${base}.pdf`;
+            await writePdfReport(result, pdfPath);
+            console.log(`PDF: ${pdfPath}`);
+          }
+          if (wantMd) {
+            const mdPath = base.endsWith('.md') ? base : `${base}.md`;
+            await writeFile(mdPath, buildMarkdownReport(result), 'utf8');
+            console.log(`Markdown: ${mdPath}`);
+          }
+        }
+      }
     }
   } catch (err) {
     console.error(`Error: ${err.message}`);

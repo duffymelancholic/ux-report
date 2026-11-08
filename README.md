@@ -18,12 +18,15 @@ npx playwright install chromium
 
 ```bash
 node index.js https://example.com --pdf report.pdf --json report.json
-node index.js https://example.com --pdf report.pdf --no-screenshot
+node index.js https://example.com --md report.md --no-screenshot
 node index.js --config audit.yaml
+node index.js   # prompts for URL, then asks which format to export
 ```
 
 The PDF includes a full-page screenshot of the audited site by default;
 pass `--no-screenshot` (or `screenshot: false` in YAML) to skip it.
+Run with no `--pdf`/`--md`/`--json` flags in a terminal and, after the
+audit, you are asked whether to export PDF, Markdown, or both.
 
 Example `audit.yaml`:
 
