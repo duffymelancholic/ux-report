@@ -1,0 +1,5 @@
+url: https://example.com
+outputPdf: report.pdf
+outputJson: report.json
+axeRules: [wcag2a, wcag2aa, best-practice]
+timeoutMs: 30000

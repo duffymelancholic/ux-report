@@ -1,0 +1,22 @@
+{
+  "name": "ux-report",
+  "version": "1.0.0",
+  "description": "Reusable axe-core accessibility & UI/UX PDF report generator",
+  "main": "index.js",
+  "bin": {
+    "ux-report": "./index.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "audit": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "axe-core": "^4.14.0",
+    "js-yaml": "^5.5.0",
+    "playwright": "^1.64.1"
+  }
+}
