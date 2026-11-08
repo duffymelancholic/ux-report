@@ -31,13 +31,38 @@ describe('summarizeResults', () => {
   it('flags missing alt text and axe violations', () => {
     const ux = { ...fakeUx, imagesMissingAlt: ['https://x/img.png'] };
     const axe = {
-      violations: [{ id: 'image-alt', impact: 'critical', help: 'Images must have alt', nodes: [{}, {}] }],
+      violations: [{ id: 'image-alt', impact: 'critical', description: 'Ensure images have alt', help: 'Images must have alt', helpUrl: 'https://example.com/rules/image-alt', nodes: [{}, {}] }],
     };
     const s = summarizeResults(axe, ux);
     assert.equal(s.counts.critical, 2);
     assert.ok(s.findings.some((f) => f.check.includes('missing alt')));
     assert.ok(s.findings.some((f) => f.check.includes('axe: image-alt')));
     assert.ok(s.score < 100);
+  });
+
+  it('gives every finding an actionable fix', () => {
+    const badUx = {
+      ...fakeUx,
+      title: '',
+      hasTitle: false,
+      lang: '',
+      hasLang: false,
+      hasViewport: false,
+      h1Count: 0,
+      h1Ok: false,
+      imagesMissingAlt: ['https://x/img.png'],
+      buttonsNoName: ['<button></button>'],
+      linksNoName: ['/empty'],
+    };
+    const axe = {
+      violations: [{ id: 'region', impact: 'moderate', description: 'Ensure content is in landmarks', help: 'All content in landmarks', helpUrl: 'https://example.com/rules/region', nodes: [{}] }],
+    };
+    const s = summarizeResults(axe, badUx);
+    assert.ok(s.findings.length >= 8);
+    for (const f of s.findings) {
+      assert.ok(f.fix && f.fix.length > 10, `finding has a fix: ${f.check}`);
+    }
+    assert.ok(s.findings.some((f) => f.fix.includes('https://example.com/rules/region')));
   });
 });
 
@@ -89,7 +114,7 @@ describe('buildMarkdownReport', () => {
   it('lists findings and violations', () => {
     const ux = { ...fakeUx, imagesMissingAlt: ['https://x/img.png'] };
     const axe = {
-      violations: [{ id: 'image-alt', impact: 'critical', help: 'Images must have alt', nodes: [{}] }],
+      violations: [{ id: 'image-alt', impact: 'critical', description: 'Ensure images have alt', help: 'Images must have alt', helpUrl: 'https://example.com/rules/image-alt', nodes: [{}] }],
     };
     const md = buildMarkdownReport({
       url: 'https://example.com',
@@ -100,6 +125,8 @@ describe('buildMarkdownReport', () => {
     });
     assert.ok(md.includes('missing alt'));
     assert.ok(md.includes('| image-alt | critical | Images must have alt | 1 |'));
+    assert.ok(md.includes('Fix:'));
+    assert.ok(md.includes('https://example.com/rules/image-alt'));
   });
 });
 

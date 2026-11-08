@@ -73,23 +73,60 @@ export function summarizeResults(axeResults, ux) {
     if (counts[v.impact] !== undefined) counts[v.impact] += v.nodes.length;
   }
   const findings = [];
-  if (!ux.hasTitle) findings.push({ level: 'high', check: 'Missing <title>' });
-  if (!ux.hasLang) findings.push({ level: 'high', check: 'Missing html lang attribute' });
-  if (!ux.hasViewport) findings.push({ level: 'high', check: 'Missing viewport meta tag' });
-  if (!ux.h1Ok) findings.push({ level: 'medium', check: `Expected exactly 1 <h1>, found ${ux.h1Count}` });
+  if (!ux.hasTitle) {
+    findings.push({
+      level: 'high',
+      check: 'Missing <title>',
+      fix: 'Add a unique <title> of about 50–60 characters inside <head> describing the page; every page needs its own.',
+    });
+  }
+  if (!ux.hasLang) {
+    findings.push({
+      level: 'high',
+      check: 'Missing html lang attribute',
+      fix: 'Add a lang attribute to <html> (e.g. <html lang="en">) so screen readers use the correct pronunciation.',
+    });
+  }
+  if (!ux.hasViewport) {
+    findings.push({
+      level: 'high',
+      check: 'Missing viewport meta tag',
+      fix: 'Add <meta name="viewport" content="width=device-width, initial-scale=1"> inside <head> so the layout adapts to mobile screens.',
+    });
+  }
+  if (!ux.h1Ok) {
+    findings.push({
+      level: 'medium',
+      check: `Expected exactly 1 <h1>, found ${ux.h1Count}`,
+      fix: 'Use exactly one <h1> per page for the main topic, then structure subsections with <h2>–<h6> in order without skipping levels.',
+    });
+  }
   if (ux.imagesMissingAlt.length > 0) {
-    findings.push({ level: 'high', check: `${ux.imagesMissingAlt.length} image(s) missing alt text` });
+    findings.push({
+      level: 'high',
+      check: `${ux.imagesMissingAlt.length} image(s) missing alt text`,
+      fix: 'Add concise, meaningful alt text to every informative image; use alt="" for purely decorative ones. First offender: ' + ux.imagesMissingAlt[0],
+    });
   }
   if (ux.buttonsNoName.length > 0) {
-    findings.push({ level: 'medium', check: `${ux.buttonsNoName.length} button(s) without accessible name` });
+    findings.push({
+      level: 'medium',
+      check: `${ux.buttonsNoName.length} button(s) without accessible name`,
+      fix: 'Give each <button> visible text or an aria-label describing its action (e.g. aria-label="Close menu").',
+    });
   }
   if (ux.linksNoName.length > 0) {
-    findings.push({ level: 'medium', check: `${ux.linksNoName.length} link(s) without accessible name` });
+    findings.push({
+      level: 'medium',
+      check: `${ux.linksNoName.length} link(s) without accessible name`,
+      fix: 'Give each link descriptive text (or aria-label) stating its purpose — avoid bare "click here" links.',
+    });
   }
   for (const v of violations) {
     findings.push({
       level: v.impact === 'critical' || v.impact === 'serious' ? 'high' : 'medium',
       check: `axe: ${v.id} — ${v.help} (${v.nodes.length} node(s))`,
+      fix: `${v.description}. Fix guide: ${v.helpUrl}`,
     });
   }
   const totalNodes = Object.values(counts).reduce((a, b) => a + b, 0);
@@ -105,7 +142,7 @@ export function buildHtmlReport({ url, axeResults, ux, summary, generatedAt, scr
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;');
   const rows = (summary.findings || [])
-    .map((f) => `<tr><td>${esc(f.level)}</td><td>${esc(f.check)}</td></tr>`)
+    .map((f) => `<tr><td>${esc(f.level)}</td><td>${esc(f.check)}</td><td>${esc(f.fix)}</td></tr>`)
     .join('\n');
   const axeRows = (axeResults?.violations ?? [])
     .map(
@@ -143,7 +180,7 @@ ${screenshotDataUri ? `<h2>Screenshot</h2>\n<img src="${screenshotDataUri}" alt=
 <tr><td>Links / unnamed</td><td>${ux.linkCount} / ${ux.linksNoName.length}</td></tr>
 </table>
 <h2>Findings (${summary.findings.length})</h2>
-<table><tr><th>Level</th><th>Finding</th></tr>${rows || '<tr><td colspan="2">No findings 🎉</td></tr>'}</table>
+<table><tr><th>Level</th><th>Finding</th><th>Suggested fix</th></tr>${rows || '<tr><td colspan="3">No findings 🎉</td></tr>'}</table>
 <h2>Axe violations</h2>
 <table><tr><th>Rule</th><th>Impact</th><th>Help</th><th>Nodes</th></tr>${axeRows || '<tr><td colspan="4">None</td></tr>'}</table>
 </body></html>`;
@@ -178,7 +215,7 @@ export function buildMarkdownReport({ url, axeResults, ux, summary, generatedAt 
     `## Findings (${summary.findings.length})`,
     '',
     ...(summary.findings.length > 0
-      ? summary.findings.map((f) => `- [${f.level}] ${f.check}`)
+      ? summary.findings.map((f) => `- [${f.level}] ${f.check}\n  Fix: ${f.fix}`)
       : ['No findings 🎉']),
     '',
     '## Axe violations',

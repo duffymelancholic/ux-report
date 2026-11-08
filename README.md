@@ -5,7 +5,8 @@ Reusable axe-core accessibility & UI/UX PDF report generator.
 Uses [Playwright](https://playwright.dev/) to load a page, runs
 [axe-core](https://github.com/dequelabs/axe-core) plus lightweight UI/UX
 heuristics (title, lang, viewport, headings, image alt text, accessible
-button/link names), and writes a printable PDF (plus optional JSON).
+button/link names). Every finding ships with a concrete suggested fix,
+and the tool writes a printable PDF, Markdown, and optional JSON.
 
 ## Install
 
